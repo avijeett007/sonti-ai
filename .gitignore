@@ -67,3 +67,6 @@ temp/
 agent_configs/
 *.key
 *.pem
+
+.knocodex/
+.claude/
