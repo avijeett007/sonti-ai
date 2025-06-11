@@ -2,7 +2,7 @@
 
 import os
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
 
 import aiohttp
@@ -13,6 +13,10 @@ from .telemetry import TelemetryCollector
 from .config import ConfigManager
 from .agents.voice import VoiceAgent
 from .agents.workflow import WorkflowAgent
+from .db import get_connector, BaseConnector
+from .db.entities import Agent, User, KnowledgeBase, Document
+from .db.migrations import MigrationManager
+from .db.utils import get_database_type, get_env_database_url
 
 
 class KnovaAI:
@@ -23,7 +27,9 @@ class KnovaAI:
         license_key: str,
         api_url: Optional[str] = None,
         telemetry_enabled: bool = True,
-        config_dir: Optional[Path] = None
+        config_dir: Optional[Path] = None,
+        database_url: Optional[str] = None,
+        database_type: Optional[str] = None
     ):
         """
         Initialize Knova AI client
@@ -33,6 +39,8 @@ class KnovaAI:
             api_url: Optional API URL override
             telemetry_enabled: Enable/disable telemetry collection
             config_dir: Optional directory for local configuration storage
+            database_url: Optional database connection URL
+            database_type: Optional database type (sqlite, postgresql, supabase, neondb)
         """
         self.license_key = license_key
         self.api_url = api_url or os.getenv("KNOVA_API_URL", "https://api.knova.ai")
@@ -42,6 +50,12 @@ class KnovaAI:
         self.config = ConfigManager(config_dir or Path.home() / ".knova")
         self.license_validator = LicenseValidator(self.api_url, license_key)
         self.telemetry = TelemetryCollector(self.api_url, license_key) if telemetry_enabled else None
+        
+        # Database configuration
+        self.database_url = database_url or get_env_database_url() or str(self.config.config_dir / "knova.db")
+        self.database_type = database_type or get_database_type(self.database_url)
+        self.db: Optional[BaseConnector] = None
+        self.migration_manager: Optional[MigrationManager] = None
         
         # Session for API calls
         self._session: Optional[aiohttp.ClientSession] = None
@@ -61,6 +75,16 @@ class KnovaAI:
     async def initialize(self):
         """Initialize the client and validate license"""
         self._session = aiohttp.ClientSession()
+        
+        # Initialize database connection
+        self.db = get_connector(self.database_type, self.database_url)
+        await self.db.connect()
+        
+        # Initialize migration manager
+        self.migration_manager = MigrationManager(self.db)
+        
+        # Run migrations if needed
+        await self.migration_manager.migrate()
         
         # Validate license
         try:
@@ -85,6 +109,9 @@ class KnovaAI:
             
         if self.telemetry:
             await self.telemetry.stop()
+            
+        if self.db:
+            await self.db.disconnect()
             
     def create_agent(
         self,
@@ -285,3 +312,71 @@ class KnovaAI:
                     raise ValueError(f"Failed to upload document: {error}")
                     
                 return await response.json()
+                
+    # Database-backed methods
+    
+    async def save_agent_to_db(self, agent: VoiceAgent) -> Agent:
+        """Save an agent to the local database"""
+        agent_entity = Agent(
+            name=agent.name,
+            config=agent.config,
+            prompt_template=agent.config.get("prompt"),
+            status="draft"
+        )
+        
+        return await self.db.create(agent_entity)
+        
+    async def get_agent_from_db(self, agent_id: str) -> Optional[Agent]:
+        """Get an agent from the local database"""
+        return await self.db.get(Agent, agent_id)
+        
+    async def list_agents_from_db(self, status: Optional[str] = None) -> List[Agent]:
+        """List agents from the local database"""
+        filters = {"status": status} if status else None
+        return await self.db.list(Agent, filters=filters)
+        
+    async def update_agent_in_db(self, agent: Agent) -> Agent:
+        """Update an agent in the local database"""
+        return await self.db.update(agent)
+        
+    async def delete_agent_from_db(self, agent_id: str) -> bool:
+        """Delete an agent from the local database"""
+        return await self.db.delete(Agent, agent_id)
+        
+    async def save_knowledge_base_to_db(self, name: str, vector_config: Dict[str, Any]) -> KnowledgeBase:
+        """Save a knowledge base to the local database"""
+        kb = KnowledgeBase(
+            name=name,
+            vector_store_config=vector_config
+        )
+        
+        return await self.db.create(kb)
+        
+    async def save_document_to_db(self, kb_id: str, filename: str, content: str, metadata: Optional[Dict] = None) -> Document:
+        """Save a document to the local database"""
+        doc = Document(
+            knowledge_base_id=kb_id,
+            filename=filename,
+            content=content,
+            metadata=metadata or {}
+        )
+        
+        return await self.db.create(doc)
+        
+    async def list_documents_from_db(self, kb_id: str) -> List[Document]:
+        """List documents in a knowledge base"""
+        return await self.db.list(Document, filters={"knowledge_base_id": kb_id})
+        
+    async def get_migration_status(self) -> Dict[str, Any]:
+        """Get database migration status"""
+        if not self.migration_manager:
+            return {"error": "Migration manager not initialized"}
+            
+        return await self.migration_manager.status()
+        
+    async def run_migrations(self, target_version: Optional[str] = None) -> int:
+        """Run pending database migrations"""
+        if not self.migration_manager:
+            raise RuntimeError("Migration manager not initialized")
+            
+        return await self.migration_manager.migrate(target_version)
