@@ -8,7 +8,10 @@ from pathlib import Path
 import aiohttp
 from pydantic import BaseModel, Field
 
-from .license import LicenseValidator
+from .license import LicenseValidator, LicenseInfo
+from .license_validator import LicenseBackgroundValidator
+from .feature_flags import FeatureFlags, Feature
+from .usage_tracker import UsageTracker
 from .telemetry import TelemetryCollector
 from .config import ConfigManager
 from .agents.voice import VoiceAgent
@@ -48,7 +51,10 @@ class KnovaAI:
         
         # Initialize components
         self.config = ConfigManager(config_dir or Path.home() / ".knova")
-        self.license_validator = LicenseValidator(self.api_url, license_key)
+        self.license_validator = LicenseValidator(self.api_url, license_key, self.config)
+        self.background_validator = LicenseBackgroundValidator(self.license_validator)
+        self.feature_flags = FeatureFlags(self.config)
+        self.usage_tracker = UsageTracker(self.config)
         self.telemetry = TelemetryCollector(self.api_url, license_key) if telemetry_enabled else None
         
         # Database configuration
@@ -60,8 +66,9 @@ class KnovaAI:
         # Session for API calls
         self._session: Optional[aiohttp.ClientSession] = None
         
-        # Validate license on init
+        # License info
         self._license_valid = False
+        self._license_info: Optional[LicenseInfo] = None
         
     async def __aenter__(self):
         """Async context manager entry"""
@@ -91,12 +98,17 @@ class KnovaAI:
             self._license_valid = await self.license_validator.validate()
             if not self._license_valid:
                 raise ValueError("Invalid license key")
+            
+            # Get full license info
+            self._license_info = await self.license_validator.get_license_info()
+            
         except Exception as e:
-            # Check if we have a cached valid license for offline mode
-            if self.config.has_valid_cached_license(self.license_key):
-                self._license_valid = True
-            else:
-                raise ValueError(f"License validation failed: {e}")
+            # The new validation already handles offline mode
+            raise ValueError(f"License validation failed: {e}")
+                
+        # Start background validation for non-free tiers
+        if self._license_info and not self.license_validator.is_free_tier():
+            self.background_validator.start()
                 
         # Start telemetry if enabled
         if self.telemetry:
@@ -106,6 +118,9 @@ class KnovaAI:
         """Close the client and cleanup resources"""
         if self._session:
             await self._session.close()
+            
+        # Stop background validator
+        self.background_validator.stop()
             
         if self.telemetry:
             await self.telemetry.stop()
@@ -142,6 +157,15 @@ class KnovaAI:
         Returns:
             VoiceAgent instance
         """
+        # Check feature availability and usage limits
+        if self._license_info:
+            allowed, message = self.feature_flags.check_and_track_usage(
+                Feature.CREATE_AGENT,
+                self._license_info
+            )
+            if not allowed:
+                raise ValueError(f"Cannot create agent: {message}")
+        
         agent_config = {
             "name": name,
             "llm_provider": llm_provider,
@@ -157,6 +181,9 @@ class KnovaAI:
         # Track agent creation
         if self.telemetry:
             asyncio.create_task(self.telemetry.track_event("agent_created", agent_config))
+        
+        # Track usage metrics
+        self.usage_tracker.track_agent_lifecycle("created", name, self.license_key, True)
             
         return VoiceAgent(self, agent_config)
         
@@ -175,6 +202,14 @@ class KnovaAI:
         Returns:
             WorkflowAgent instance
         """
+        # Check if multi-agent collaboration is available
+        if self._license_info:
+            if not self.feature_flags.check_feature(Feature.MULTI_AGENT_COLLABORATION, self._license_info):
+                raise ValueError(
+                    f"Multi-agent workflows are not available in {self._license_info.tier} tier. "
+                    "Please upgrade to PRO or ENTERPRISE."
+                )
+        
         workflow_config = {
             "name": name,
             "description": description,
@@ -380,3 +415,50 @@ class KnovaAI:
             raise RuntimeError("Migration manager not initialized")
             
         return await self.migration_manager.migrate(target_version)
+    
+    # License management methods
+    
+    def get_license_info(self) -> Optional[LicenseInfo]:
+        """Get current license information"""
+        return self._license_info
+    
+    def get_license_tier(self) -> str:
+        """Get current license tier"""
+        return self.license_validator.get_tier()
+    
+    def get_usage_limits(self) -> Dict[str, Any]:
+        """Get usage limits for current license tier"""
+        tier = self.get_license_tier()
+        return self.feature_flags.get_usage_limits(tier)
+    
+    def get_current_usage(self) -> Dict[str, int]:
+        """Get current usage statistics"""
+        if not self._license_info:
+            return {}
+        return self.feature_flags.get_all_usage(self.license_key)
+    
+    async def get_usage_summary(self, period_days: int = 30) -> Dict[str, Any]:
+        """Get detailed usage summary for the specified period"""
+        return self.usage_tracker.get_usage_summary(self.license_key, period_days)
+    
+    def check_feature_available(self, feature: Feature) -> bool:
+        """Check if a specific feature is available in current license"""
+        if not self._license_info:
+            return False
+        return self.feature_flags.check_feature(feature, self._license_info)
+    
+    def get_cache_status(self) -> Dict[str, Any]:
+        """Get license cache status information"""
+        return self.license_validator.get_cache_status()
+    
+    async def force_license_validation(self):
+        """Force immediate license validation"""
+        self._license_valid = await self.license_validator.validate()
+        self._license_info = await self.license_validator.get_license_info()
+        
+        if not self._license_valid:
+            raise ValueError("License validation failed")
+            
+    def get_validation_history(self, limit: int = 10) -> list:
+        """Get recent license validation history"""
+        return self.license_validator.get_validation_history(limit)
