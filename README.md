@@ -1,14 +1,46 @@
-# Knova AI: Open Source Voice AI Agent Platform
+# Knova AI
 
-Knova AI is the world's first open source Voice AI Agent platform, providing a comprehensive solution for creating, managing, and deploying voice AI agents. Built on top of LiveKit's real-time communication infrastructure, Knova AI enables users to create single or multi-agent voice AI systems with support for knowledge bases, function calling, and multi-provider integration.
+Open-source Voice AI Agent platform with multi-provider support, visual workflows, and enterprise-ready features.
+
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
+[![Node](https://img.shields.io/badge/Node-18+-green.svg)](https://nodejs.org)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://docker.com)
 
 ## Features
 
-- **User Management System**: Registration/login functionality, user profile management, and API key management for various providers
-- **Agent Creation & Management**: Create single and multi-prompt agents, enable multi-agent collaboration, integrate knowledge bases, and support function calling
-- **Communication Channels**: Web-based voice communication, telephony integration, and future support for video and avatars
-- **Infrastructure**: Kubernetes-based scalable architecture, independent agent containers, LiveKit integration, and Supabase for data management
-- **Integration Capabilities**: Composio for tool/function integration, and support for multiple STT, TTS, and LLM providers
+- 🎯 **Simple Python SDK** - Create voice agents with just a few lines of code
+- 🔧 **Multi-Provider Support** - OpenAI, Google, Azure, AWS, Anthropic, and local models
+- 🎙️ **Advanced Voice Capabilities** - STT/TTS with multiple providers
+- 📱 **SIP Telephony** - Built-in support for Twilio, Telnyx, and Plivo
+- 🔄 **Visual Workflow Builder** - Drag-and-drop multi-agent orchestration
+- 📊 **Knowledge Bases** - Vector database integration for document retrieval
+- 🔑 **License Management** - Free tier with optional enterprise features
+- 🚀 **Kubernetes Ready** - Scalable deployment with auto-scaling
+
+## Quick Start
+
+### Using the Python SDK
+
+```python
+from knova_ai import KnovaAI
+
+# Initialize with your license key
+knova = KnovaAI(license_key="your-free-tier-key")
+
+# Create a voice agent
+agent = knova.create_agent(
+    name="Customer Support",
+    llm_provider="openai",
+    llm_model="gpt-4",
+    stt_provider="deepgram",
+    tts_provider="elevenlabs"
+)
+
+# Deploy the agent
+deployment = await knova.deploy_agent(agent)
+print(f"Agent deployed at: {deployment['endpoint']}")
+```
 
 ## Architecture
 
@@ -32,44 +64,60 @@ For more details, see the [architecture document](docs/architecture.md).
 - LiveKit account (or self-hosted LiveKit server)
 - Supabase account (or self-hosted Supabase)
 
-### Local Development
+## Local Development Setup
 
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-org/knova-ai.git
-   cd knova-ai
-   ```
+```bash
+git clone https://github.com/avijeett007/knova-ai.git
+cd knova-ai
+```
 
-2. Copy the example environment file and fill in your values:
-   ```bash
-   cp .env.example .env
-   ```
+2. Copy environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
 
-3. Start the local development environment:
-   ```bash
-   docker-compose -f infrastructure/docker-compose.yml up -d
-   ```
+3. Run the setup script:
+```bash
+./scripts/setup.sh
+```
 
-4. Install frontend dependencies and start the development server:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+4. Start the development environment:
+```bash
+# Using Docker Compose
+cd infrastructure
+docker-compose up
 
-5. In a new terminal, install agent dependencies:
-   ```bash
-   cd agent
-   pip install -r requirements.txt
-   ```
+# Or run components individually:
+# Frontend
+cd frontend && npm run dev
 
-6. Start the agent worker:
-   ```bash
-   cd agent
-   python src/entrypoint.py
-   ```
+# Agent worker
+cd agent && python src/main.py
+```
 
-7. Open your browser and navigate to `http://localhost:3000`
+5. Access the application at http://localhost:3000
+
+## Testing
+
+Run all tests:
+```bash
+./scripts/test.sh
+```
+
+## Deployment
+
+### Docker Compose (Development)
+```bash
+cd infrastructure
+docker-compose up
+```
+
+### Kubernetes (Production)
+```bash
+./scripts/deploy.sh
+```
 
 ### Documentation
 
@@ -82,9 +130,15 @@ For more details, see the [architecture document](docs/architecture.md).
 
 We welcome contributions to Knova AI! Please see our [contributing guidelines](CONTRIBUTING.md) for more information.
 
+## Support
+
+- Documentation: https://docs.knova.ai
+- Issues: https://github.com/avijeett007/knova-ai/issues
+- Discord: https://discord.gg/knova-ai
+
 ## License
 
-Knova AI is open source software licensed under the [Apache 2.0 License](LICENSE).
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
