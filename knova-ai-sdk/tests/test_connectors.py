@@ -1,6 +1,7 @@
 """Unit tests for database connectors."""
 
 import pytest
+import pytest_asyncio
 import asyncio
 import tempfile
 from pathlib import Path
@@ -13,7 +14,7 @@ from knova_ai.db.entities import User, Agent
 class TestSQLiteConnector:
     """Test SQLite connector."""
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def db(self):
         """Create a temporary SQLite database."""
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:

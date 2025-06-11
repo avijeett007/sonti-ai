@@ -1,11 +1,12 @@
 """Base classes for database entities and connectors."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 import uuid
 from dataclasses import dataclass, field, asdict
 import json
+from .utils.validation import InputValidator, ValidationError
 
 T = TypeVar('T', bound='BaseEntity')
 
@@ -15,8 +16,8 @@ class BaseEntity(ABC):
     """Base class for all database entities."""
     
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     @classmethod
     @abstractmethod
@@ -65,9 +66,15 @@ class BaseEntity(ABC):
         """Validate the entity and return a list of validation errors."""
         errors = []
         
+        # Validate ID
         if not self.id:
             errors.append("ID is required")
+        elif not isinstance(self.id, str):
+            errors.append("ID must be a string")
+        elif len(self.id) > 255:
+            errors.append("ID exceeds maximum length of 255 characters")
         
+        # Validate timestamps
         if not isinstance(self.created_at, datetime):
             errors.append("created_at must be a datetime object")
         
@@ -77,11 +84,40 @@ class BaseEntity(ABC):
         if self.created_at > self.updated_at:
             errors.append("created_at cannot be after updated_at")
         
+        # Validate string fields for common security issues
+        for field_name, field_value in self.__dict__.items():
+            if isinstance(field_value, str):
+                # Note: Null bytes are sanitized during database operations,
+                # so we don't validate them here
+                
+                # Check for excessively long strings
+                if len(field_value) > 10000:
+                    errors.append(f"{field_name} exceeds maximum length of 10000 characters")
+                
+                # Validate specific field types
+                if 'email' in field_name.lower() and field_value:
+                    try:
+                        InputValidator.validate_email(field_value)
+                    except ValidationError as e:
+                        errors.append(f"{field_name}: {str(e)}")
+                
+                if 'phone' in field_name.lower() and field_value:
+                    try:
+                        InputValidator.validate_phone(field_value)
+                    except ValidationError as e:
+                        errors.append(f"{field_name}: {str(e)}")
+                
+                if 'url' in field_name.lower() and field_value:
+                    try:
+                        InputValidator.validate_url(field_value)
+                    except ValidationError as e:
+                        errors.append(f"{field_name}: {str(e)}")
+        
         return errors
     
     def update_timestamp(self):
         """Update the updated_at timestamp."""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
 
 class BaseConnector(ABC):
@@ -163,6 +199,45 @@ class BaseConnector(ABC):
     async def rollback_transaction(self):
         """Rollback the current transaction."""
         pass
+    
+    async def bulk_create(self, entities: List[BaseEntity]) -> List[BaseEntity]:
+        """Bulk create multiple entities.
+        
+        Default implementation calls create() for each entity.
+        Subclasses can override for better performance.
+        """
+        results = []
+        for entity in entities:
+            result = await self.create(entity)
+            results.append(result)
+        return results
+    
+    async def bulk_update(self, entities: List[BaseEntity]) -> List[BaseEntity]:
+        """Bulk update multiple entities.
+        
+        Default implementation calls update() for each entity.
+        Subclasses can override for better performance.
+        """
+        results = []
+        for entity in entities:
+            result = await self.update(entity)
+            results.append(result)
+        return results
+    
+    async def bulk_delete(self, entity_class: Type[T], ids: List[str]) -> int:
+        """Bulk delete multiple entities by IDs.
+        
+        Default implementation calls delete() for each ID.
+        Subclasses can override for better performance.
+        
+        Returns:
+            Number of entities deleted.
+        """
+        count = 0
+        for id in ids:
+            if await self.delete(entity_class, id):
+                count += 1
+        return count
     
     async def __aenter__(self):
         """Async context manager entry."""
