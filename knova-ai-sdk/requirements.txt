@@ -5,3 +5,9 @@ cryptography>=41.0.0
 python-dotenv>=1.0.0
 livekit>=0.11.0
 livekit-agents>=0.8.0
+
+# Database dependencies
+asyncpg>=0.29.0      # PostgreSQL async driver
+psycopg2-binary>=2.9 # PostgreSQL driver
+aiosqlite>=0.19.0    # SQLite async driver
+alembic>=1.13.0      # Database migrations
