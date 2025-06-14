@@ -4,6 +4,8 @@ from .client import KnovaAI
 from .agents.base import Agent as BaseAgent
 from .agents.voice import VoiceAgent
 from .agents.workflow import WorkflowAgent
+from .license import LicenseInfo, LicenseTier
+from .feature_flags import Feature
 from .db import (
     BaseEntity, BaseConnector,
     SQLiteConnector, PostgreSQLConnector, SupabaseConnector, NeonDBConnector,
@@ -22,6 +24,11 @@ __all__ = [
     "BaseAgent",
     "VoiceAgent", 
     "WorkflowAgent",
+    
+    # License
+    "LicenseInfo",
+    "LicenseTier",
+    "Feature",
     
     # Database
     "BaseEntity",
