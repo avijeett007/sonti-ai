@@ -6,9 +6,11 @@ from livekit import agents
 from livekit.agents import JobContext, WorkerOptions
 
 from .base import Agent
-from ..providers.llm import LLMProvider
-from ..providers.stt import STTProvider
-from ..providers.tts import TTSProvider
+from ..providers import (
+    ProviderType, create_provider,
+    LiveKitProviderAdapter, LiveKitAgentConfig,
+    LLMProvider, STTProvider, TTSProvider  # Legacy imports for compatibility
+)
 
 
 class VoiceAgent(Agent):
@@ -86,46 +88,37 @@ class VoiceAgent(Agent):
         return response
         
     def create_livekit_agent(self) -> agents.JobContext:
-        """Create LiveKit agent handler"""
+        """Create LiveKit agent handler using new provider system"""
         async def entrypoint(ctx: JobContext):
-            # Initialize providers
-            llm = LLMProvider.create_livekit_llm(
-                self.llm_provider,
-                self.llm_model,
-                **self.llm_settings
+            # Create configuration for LiveKit adapter
+            config = LiveKitAgentConfig(
+                llm_provider=self.llm_provider,
+                llm_config={
+                    "model": self.llm_model,
+                    **self.llm_settings
+                },
+                stt_provider=self.stt_provider,
+                stt_config=self.stt_settings,
+                tts_provider=self.tts_provider,
+                tts_config=self.tts_settings,
+                agent_name=self.name,
+                initial_prompt=self.prompt,
+                functions=self.tools,
+                enable_interruptions=self.config.get("enable_interruptions", True)
             )
             
-            stt = STTProvider.create_livekit_stt(
-                self.stt_provider,
-                **self.stt_settings
-            )
-            
-            tts = TTSProvider.create_livekit_tts(
-                self.tts_provider,
-                **self.tts_settings
-            )
-            
-            # Create assistant
-            assistant = agents.VoiceAssistant(
-                llm=llm,
-                stt=stt,
-                tts=tts,
-                chat_ctx=agents.ChatContext().append(
-                    text=self.prompt,
-                    role="system"
-                )
-            )
+            # Create adapter and assistant
+            adapter = LiveKitProviderAdapter(config)
+            assistant = await adapter.create_voice_assistant()
             
             # Connect to room
             await ctx.connect()
             
-            # Start assistant
-            assistant.start(ctx.room)
-            
             # Handle participant events
             @ctx.room.on("participant_connected")
             def on_participant_connected(participant):
-                assistant.start_session(participant)
+                # Assistant handles participants automatically
+                pass
                 
         return entrypoint
         
