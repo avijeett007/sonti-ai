@@ -11,7 +11,6 @@ import time
 from contextlib import asynccontextmanager
 
 from ..telemetry import TelemetryCollector
-from ..config import Settings
 
 
 class ProviderType(Enum):
